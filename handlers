@@ -1,0 +1,109 @@
+from aiogram import types
+from aiogram.dispatcher import FSMContext
+from aiogram.types import ParseMode
+from aiogram.utils import executor
+from database import add_student, get_all_students, add_admin_info
+from keyboards import get_student_keyboard, get_admin_keyboard, get_search_keyboard, get_filter_keyboard
+from states import StudentForm, AdminForm
+
+async def cmd_start(message: types.Message):
+    await message.answer("به پنل مدیریت خوش آمدید. لطفا وارد شوید.", reply_markup=get_admin_keyboard())
+
+async def cmd_admin_login(message: types.Message):
+    await message.answer("لطفا نام کاربری و رمز عبور خود را وارد کنید.")
+
+async def process_admin_login(message: types.Message, state: FSMContext):
+    username = message.text.split()[0]
+    password = message.text.split()[1]
+    
+    if username == "admin" and password == "password":
+        await state.finish()
+        await message.answer("ورود با موفقیت انجام شد.", reply_markup=get_admin_keyboard())
+    else:
+        await message.answer("نام کاربری یا رمز عبور اشتباه است. دوباره تلاش کنید.")
+
+async def cmd_register_student(message: types.Message):
+    await message.answer("برای ثبت دانش آموز، نام، نام خانوادگی و شماره را وارد کنید.")
+    await StudentForm.name.set()
+
+async def process_student_registration(message: types.Message, state: FSMContext):
+    student_name = message.text
+    await state.update_data(name=student_name)
+    await message.answer(f"نام دانش آموز ثبت شد: {student_name}\nحالا شماره دانش آموز را وارد کنید.")
+    await StudentForm.next()
+
+async def process_student_registration_number(message: types.Message, state: FSMContext):
+    student_number = message.text
+    await state.update_data(number=student_number)
+    await message.answer(f"شماره دانش آموز ثبت شد: {student_number}\nحال کد ثبت نام را وارد کنید.")
+    await StudentForm.next()
+
+async def process_student_registration_code(message: types.Message, state: FSMContext):
+    student_code = message.text
+    user_data = await state.get_data()
+    name = user_data.get("name")
+    number = user_data.get("number")
+
+    add_student(name, number, student_code)
+    await state.finish()
+
+    await message.answer(f"دانش آموز با موفقیت ثبت شد:\nنام: {name}\nشماره: {number}\nکد ثبت نام: {student_code}")
+
+async def cmd_view_registered_students(message: types.Message):
+    students = get_all_students()
+    if students:
+        for student in students:
+            await message.answer(f"نام: {student['name']}\nکد ثبت: {student['code']}\nتاریخ ثبت: {student['registration_date']}",
+                                 reply_markup=get_student_keyboard(student['id']))
+    else:
+        await message.answer("هیچ دانش آموزی ثبت نشده است.")
+
+async def cmd_edit_admin_info(message: types.Message):
+    await message.answer("برای تغییر اطلاعات مدیر، لطفا نام کاربری جدید را وارد کنید.")
+    await AdminForm.username.set()
+
+async def process_admin_username(message: types.Message, state: FSMContext):
+    new_username = message.text
+    await state.update_data(username=new_username)
+    await message.answer(f"نام کاربری تغییر یافت: {new_username}\nحالا رمز عبور جدید را وارد کنید.")
+    await AdminForm.next()
+
+async def process_admin_password(message: types.Message, state: FSMContext):
+    new_password = message.text
+    user_data = await state.get_data()
+    new_username = user_data.get("username")
+
+    add_admin_info(new_username, new_password)
+    await state.finish()
+
+    await message.answer(f"اطلاعات مدیر با موفقیت تغییر کرد.\nنام کاربری: {new_username}\nرمز عبور جدید: {new_password}")
+
+async def cmd_search_students(message: types.Message):
+    await message.answer("برای جستجو بر اساس نام، نام دانش آموز را وارد کنید.")
+    await AdminForm.search.set()
+
+async def process_search_students(message: types.Message, state: FSMContext):
+    student_name = message.text
+    students = get_all_students(student_name=student_name)
+    
+    if students:
+        for student in students:
+            await message.answer(f"نام: {student['name']}\nکد ثبت: {student['code']}\nتاریخ ثبت: {student['registration_date']}")
+    else:
+        await message.answer("هیچ دانش آموزی با این نام یافت نشد.")
+
+async def cmd_filter_students(message: types.Message):
+    await message.answer("لطفا پایه تحصیلی و سطح کاربر را برای فیلتر انتخاب کنید.", reply_markup=get_filter_keyboard())
+
+async def process_filter_students(message: types.Message, state: FSMContext):
+    filters = message.text.split()
+    grade = filters[0]
+    level = filters[1]
+    
+    students = get_all_students(grade=grade, level=level)
+    
+    if students:
+        for student in students:
+            await message.answer(f"نام: {student['name']}\nکد ثبت: {student['code']}\nتاریخ ثبت: {student['registration_date']}")
+    else:
+        await message.answer("هیچ دانش آموزی با این فیلترها یافت نشد.")
